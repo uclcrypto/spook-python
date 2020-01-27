@@ -12,3 +12,9 @@ The `spook_encrypt` and `spook_decrypt` functions take as input bytes objects. T
 ## License
 
 This software distributed under the terms of the MIT license. See [LICENSE](LICENSE) for details.
+
+## Changelog (see git log for details)
+
+- `v1.0` Initial version
+- `v2.0` Remove the `p` parameter from the API to match the NIST API.
+

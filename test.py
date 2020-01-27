@@ -3,16 +3,13 @@
 import spook
 
 def test_spook_lwc(ad, m, k, n, c):
-    p = k[16:]
-    k = k[:16]
     print('AD', ad)
     print('M', m)
     print('k', k)
-    print('p', p)
     print('n', n)
     print('c', c)
-    c2 = spook.spook_encrypt(ad, m, k, p, n)
-    m2 = spook.spook_decrypt(ad, c2, k, p, n)
+    c2 = spook.spook_encrypt(ad, m, k, n)
+    m2 = spook.spook_decrypt(ad, c2, k, n)
     assert m2 == m, 'wrong inverse {} {}'.format(m, m2)
     assert c2 == c, 'not matching TV {} {}'.format(c, c2)
 

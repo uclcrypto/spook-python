@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2019 Gaëtan Cassiers
+# Copyright (c) 2019, 2020 Gaëtan Cassiers
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -37,6 +37,8 @@ Implementation details:
     representing a row (little-endian).  A m-LS state is implemented as a list
     of LS states.
 """
+
+__version__= '2.0'
 
 SMALL_PERM=False
 N_STEPS=6
@@ -188,14 +190,15 @@ def shadow(x):
 def pad_bytes(b,n=LS_SIZE):
     return b.ljust(n, bytes((0,)))
 
-def init_sponge_state(k, p, n):
-    if p:
-        assert len(p) == 16
-        p = bytearray(p)
+def init_sponge_state(k, n):
+    if len(k) == 32:
+        # mu variant
+        p = bytearray(k[16:])
         p[-1] &= 0x7F
         p[-1] |= 0x40
         p = bytes2state(p)
     else:
+        assert len(k) == 16
         p = (0, 0, 0, 0)
     n = bytes2state(n)
     b = clyde_encrypt(n, p, bytes2state(k))
@@ -239,8 +242,8 @@ def compress_data(x, data, mode='ENC'):
         x = shadow(x)
     return x, res
 
-def spook_encrypt(ad, m, k, p, n):
-    x = init_sponge_state(k, p, n)
+def spook_encrypt(ad, m, k, n):
+    x = init_sponge_state(k, n)
     x, _ = compress_data(x, ad)
     if m:
         x[-2][0] ^= 0x1
@@ -251,8 +254,8 @@ def spook_encrypt(ad, m, k, p, n):
     tag = state2bytes(clyde_encrypt(x[0], x[1], bytes2state(k)))
     return c+tag
 
-def spook_decrypt(ad, c, k, p, n):
-    x = init_sponge_state(k, p, n)
+def spook_decrypt(ad, c, k, n):
+    x = init_sponge_state(k, n)
     x, _ = compress_data(x, ad)
     if len(c) > LS_SIZE:
         x[-2][0] ^= 0x1
