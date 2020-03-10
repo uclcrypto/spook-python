@@ -97,10 +97,10 @@ def lbox_inv(x, y):
     return (a, b)
 
 def lbox_layer(x):
-    return (*lbox(x[0], x[1]), *lbox(x[2], x[3]))
+    return [*lbox(x[0], x[1]), *lbox(x[2], x[3])]
 
 def lbox_layer_inv(x):
-    return (*lbox_inv(x[0], x[1]), *lbox_inv(x[2], x[3]))
+    return [*lbox_inv(x[0], x[1]), *lbox_inv(x[2], x[3])]
 
 def sbox_layer(x):
     y1 = (x[0] & x[1]) ^ x[2]
@@ -116,8 +116,8 @@ def sbox_layer_inv(x):
     y2 = (y0 & y1) ^ x[1]
     return [y0, y1, y2, y3]
 
-def add_rc(x, r, s=0):
-    return list(row ^ (RC[r][i] << s) for i, row in enumerate(x))
+def add_rc(x, r):
+    return list(row ^ RC[r][i] for i, row in enumerate(x))
 
 def xor_states(x, y):
     return list(xr ^ yr for xr, yr in zip(x, y))
@@ -127,20 +127,38 @@ def tweakey(key, tweak):
     tk = [tweak, (*tx , tweak[0], tweak[1]), (tweak[2], tweak[3], *tx)]
     return [list(k^t for k, t in zip(key, tk_r)) for tk_r in tk]
 
+def xtime(x):
+    """Multiplication by polynomial x modulo x^32+x^8+1."""
+    b = x >> 31
+    return  ((x << 1) & 0xffffffff) ^ b ^ (b << 8)
+
 def dbox(x):
     if SMALL_PERM:
         y = [[0, 0, 0, 0] for _ in range(3)]
         for i in range(4):
-            y[0][i] = x[0][i]^x[1][i]^x[2][i]
-            y[1][i] = x[0][i]^x[2][i]
-            y[2][i] = x[0][i]^x[1][i]
+            a = x[0][i] ^ x[1][i]
+            b = x[0][i] ^ x[2][i]
+            c = x[1][i] ^ b
+            d = a ^ xtime(b)
+            y[0][i] = b ^ d;
+            y[1][i] = c;
+            y[2][i] = d;
     else:
         y = [[0, 0, 0, 0] for _ in range(4)]
         for i in range(4):
-            y[0][i] = x[1][i]^x[2][i]^x[3][i]
-            y[1][i] = x[0][i]^x[2][i]^x[3][i]
-            y[2][i] = x[0][i]^x[1][i]^x[3][i]
-            y[3][i] = x[0][i]^x[1][i]^x[2][i]
+            y[0][i] = x[0][i]
+            y[1][i] = x[1][i]
+            y[2][i] = x[2][i]
+            y[3][i] = x[3][i]
+            y[0][i] ^= y[1][i]
+            y[2][i] ^= y[3][i]
+            y[1][i] ^= y[2][i]
+            y[3][i] ^= xtime(y[0][i])
+            y[1][i]  = xtime(y[1][i])
+            y[0][i] ^= y[1][i]
+            y[2][i] ^= xtime(y[3][i])
+            y[1][i] ^= y[2][i]
+            y[3][i] ^= y[0][i]
     return y
 
 def clyde_encrypt(m, t, k):
@@ -174,17 +192,24 @@ def bytes2state(x):
 def state2bytes(x):
     return bytes((r >> 8*i) & 0xFF for r in x for i in range(4))
 
-def app4(f, x):
-    return list(f(xi) for xi in x)
+CST_LFSR_POLY_MASK = 0xc5
+CST_LFSR_INIT_VALUE = 0xf8737400
+SHADOW_RA_CST_ROW = 1
+def update_lfsr(lfsr):
+    return ((lfsr << 1) & 0xffffffff) ^ (CST_LFSR_POLY_MASK if lfsr & 0x80000000 else 0)
 
 def shadow(x):
+    lfsr = CST_LFSR_INIT_VALUE
     for s in range(N_STEPS):
-        x = app4(sbox_layer, x)
-        x = app4(lbox_layer, x)
-        x = list(add_rc(xi, 2*s, i) for i, xi in enumerate(x))
-        x = app4(sbox_layer, x)
+        x = [lbox_layer(sbox_layer(xi)) for xi in x]
+        for xi in x:
+            xi[SHADOW_RA_CST_ROW] ^= lfsr
+            lfsr = update_lfsr(lfsr)
+        x = [sbox_layer(xi) for xi in x]
         x = dbox(x)
-        x = list(add_rc(xi, 2*s+1, i) for i, xi in enumerate(x))
+        for i in range(len(x[0])):
+            x[0][i] ^= lfsr
+            lfsr = update_lfsr(lfsr)
     return x
 
 def pad_bytes(b,n=LS_SIZE):
@@ -203,9 +228,9 @@ def init_sponge_state(k, n):
     n = bytes2state(n)
     b = clyde_encrypt(n, p, bytes2state(k))
     if SMALL_PERM:
-        x = [p, n, b]
+        x = [b, p, n]
     else:
-        x = [p, n, (0, 0, 0, 0), b]
+        x = [b, p, n, [0, 0, 0, 0]]
     return shadow(x)
 
 def compress_block(x, block, mode, nbytes,pad):
